@@ -8,76 +8,118 @@ struct number {
     uint8_t *data;
 };
 
-struct number new_number(uint8_t len){
-    struct number n;
-    n.len = len;
-    n.data = calloc(len, 1);
-    return n;
+struct number New_number(uint8_t len){
+    struct number New_n;
+    New_n.len = len;
+    New_n.data = calloc(len, 1);
+    return New_n;
 }
 
-void del_number(struct number n){
-    free(n.data);
+void del_number(struct number *n){
+    free((*n).data);
 }
 
-struct number copy_number(struct number n, uint8_t new_len){
-    struct number new_n = new_number(new_len);
-    memcpy(new_n.data, n.data, n.len);
-    return new_n;
+struct number Copy_number(struct number *n){
+    struct number New_n = New_number((*n).len);
+    memcpy(New_n.data, (*n).data, (*n).len);
+    return New_n;
 }
 
-struct number add_numbers(struct number a, struct number b){
-    uint8_t len;
-    if(a.len > b.len){
-        if(a.data[a.len - 1] & 0b10000000){
-            len = a.len + 1;
-        }else{
-            len = a.len;
-        }
-    }else if(b.len > a.len){
-        if(b.data[b.len - 1] & 0b10000000){
-            len = b.len + 1;
-        }else{
-            len = b.len;
-        }
+void extend_number(struct number *n, uint8_t new_len){
+    uint8_t old_len = (*n).len;
+    uint8_t *old_data = (*n).data;
+    (*n).len = new_len;
+    (*n).data = calloc(new_len, 1);
+    memcpy((*n).data, old_data, old_len);
+}
+
+uint8_t get_bit(struct number *n, uint16_t bit){
+    if(bit >= (*n).len * 8){
+        return 0;
+    }
+    uint8_t mask = 0b00000001 << (bit % 8);
+    if((*n).data[bit / 8] & mask){
+        return 1;
     }else{
-        if((b.data[b.len - 1] & 0b10000000) || (a.data[a.len - 1] & 0b10000000)){
-            len = a.len + 1;
-        }else{
-            len = a.len;
-        }
+        return 0;
     }
-    struct number ans = new_number(len);
-    a = copy_number(a, len);
-    b = copy_number(b, len);
+}
 
-    uint8_t carry = 0b00000000;
-    uint8_t mask;
-    for(int byte = 0; byte < len; byte++){
-        mask = 0b00000001;
-        for(int i = 0; i < 8; i++){
-            ans.data[byte] = ans.data[byte] | (mask & (a.data[byte] ^ b.data[byte] ^ carry));
-            carry = mask & (a.data[byte] & b.data[byte]) | (a.data[byte] & carry) | (b.data[byte] & carry);
-
-            mask = mask << 1;
-            if(carry == 0b10000000){
-                carry = 0b00000001;
-            }else{
-                carry = carry << 1;
-            }
+void set_bit(struct number *n, uint16_t bit, uint8_t val){
+    if(val){
+        if(bit >= (*n).len * 8){
+            extend_number(n, (*n).len + 1);
         }
+        uint8_t mask = 0b00000001 << (bit % 8);
+        (*n).data[bit / 8] = (*n).data[bit / 8] | mask;
     }
-    del_number(a);
-    del_number(b);
-    return ans;
+}
+
+void clear(struct number *n){
+    for(uint8_t byte_n = 0; byte_n < (*n).len; byte_n++){
+        (*n).data[byte_n] = 0;
+    }
+}
+
+struct number Add_numbers(struct number *a, struct number *b){
+    uint8_t len;
+    if((*a).len >= (*b).len){
+        len = (*a).len;
+    }else{
+        len = (*b).len;
+    }
+    struct number Ans = New_number(len);
+
+    uint8_t carry = 0;
+    uint8_t a_bit;
+    uint8_t b_bit;
+    uint16_t bit_len = ((uint16_t)len) * 8;
+    for(uint16_t bin_n = 0; bin_n < bit_len || carry; bin_n++){
+        a_bit = get_bit(a, bin_n);
+        b_bit = get_bit(b, bin_n);
+        set_bit(&Ans, bin_n, a_bit ^ b_bit ^ carry);
+        carry = (a_bit & b_bit) | (a_bit & carry) | (b_bit & carry);
+    }
+    return Ans;
+}
+
+void bit_shift(struct number *n, uint16_t shift){
+    struct number Temp = Copy_number(n);
+    clear(n);
+    uint16_t bit_len = ((uint16_t)(*n).len) * 8;
+    for(uint16_t bit_n = 0; bit_n < bit_len; bit_n++){
+        set_bit(n, bit_n + shift, get_bit(&Temp, bit_n));
+    }
+    del_number(&Temp);
+}
+
+struct number Multiply_numbers(struct number *a, struct number *b){
+    struct number Shifted_b = Copy_number(b);
+    struct number Ans = New_number((*b).len);
+    struct number Temp;
+    uint16_t a_bit_len = ((uint16_t)(*a).len) * 8;
+
+    for(uint16_t shift = 0; shift < a_bit_len; shift++){
+        if(get_bit(a, shift)){
+            Temp = Add_numbers(&Ans, &Shifted_b);
+            del_number(&Ans);
+            Ans = Temp;
+        }
+        bit_shift(&Shifted_b, 1);
+    }
+    del_number(&Shifted_b);
+    return Ans;
 }
 
 int main(){
-    struct number a = new_number(8);
-    struct number b = new_number(3);
-    a.data[0] = 0xff;
-    b.data[0] = 0xff;
-    struct number ans = add_numbers(a, b);
+    struct number A = New_number(1);
+    struct number B = New_number(1);
 
-    printf("%X %X %X %X %X %X %X %X", ans.data[7], ans.data[6], ans.data[5], ans.data[4], ans.data[3], ans.data[2], ans.data[1], ans.data[0]);
+    A.data[0] = 0xff;
+    B.data[0] = 0xff;
+
+    struct number Ans = Multiply_numbers(&A, &B);
+    printf("%X %X\n", Ans.data[1], Ans.data[0]);
+
     return 0;
 }
