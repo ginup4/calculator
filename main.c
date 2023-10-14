@@ -3,29 +3,52 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct number {
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "DanglingPointer"
+typedef uint8_t bool;
+struct number_struct {
     uint16_t len;
     uint8_t *data;
 };
+typedef struct number_struct* number;
 
-struct number New_number(uint16_t len){
-    struct number New_n;
-    New_n.len = len;
-    New_n.data = calloc(len, 1);
-    return New_n;
+number new_number(){
+    number new_n = (number)calloc(1, sizeof(struct number_struct));
+    (*new_n).len = 1;
+    (*new_n).data = calloc(1, 1);
+    return new_n;
+}
+void PRINT_NUMBER(number n){
+    for(int i = (*n).len - 1; i >= 0; i--){
+        printf("%x ", (*n).data[i]);
+    }
+    printf("\n");
 }
 
-void del_number(struct number *n){
+void del_number(number n){
     free((*n).data);
+    free(n);
 }
 
-struct number Copy_number(struct number *n){
-    struct number New_n = New_number((*n).len);
-    memcpy(New_n.data, (*n).data, (*n).len);
-    return New_n;
+void set_number(number n, number val){
+    (*n).len = (*val).len;
+    free((*n).data);
+    (*n).data = calloc((*val).len, 1);
+    memcpy((*n).data, (*val).data, (*val).len);
 }
 
-void extend_number(struct number *n, uint16_t new_len){
+void clear_number(number n){
+    free((*n).data);
+    (*n).len = 1;
+    (*n).data = calloc(1, 1);
+}
+
+void set_number_from_uint8_t(number n, uint8_t val){
+    clear_number(n);
+    (*n).data[0] = val;
+}
+
+void extend_number(number n, uint16_t new_len){
     uint16_t old_len = (*n).len;
     uint8_t *old_data = (*n).data;
     (*n).len = new_len;
@@ -33,7 +56,7 @@ void extend_number(struct number *n, uint16_t new_len){
     memcpy((*n).data, old_data, old_len);
 }
 
-uint8_t get_bit(struct number *n, int32_t bit){
+bool get_bit(number n, int32_t bit){
     if(bit >= ((int32_t)(*n).len) * 8){
         return 0;
     }
@@ -45,7 +68,11 @@ uint8_t get_bit(struct number *n, int32_t bit){
     }
 }
 
-void set_bit(struct number *n, int32_t bit, uint8_t val){
+uint16_t get_len(number n){
+    return (*n).len;
+}
+
+void set_bit(number n, int32_t bit, bool val){
     if(val){
         if(bit >= ((int32_t)(*n).len) * 8){
             extend_number(n, bit / 8 + 1);
@@ -55,94 +82,37 @@ void set_bit(struct number *n, int32_t bit, uint8_t val){
     }
 }
 
-void clear_number(struct number *n){
-    for(uint16_t byte_n = 0; byte_n < (*n).len; byte_n++){
-        (*n).data[byte_n] = 0;
-    }
-}
+void add(number a, number b, number ret){
+    number ans = new_number();
 
-struct number Add_numbers(struct number *a, struct number *b){
     uint16_t len;
-    if((*a).len >= (*b).len){
-        len = (*a).len;
+    if(get_len(a) > get_len(b)){
+        len = get_len(a);
     }else{
-        len = (*b).len;
+        len = get_len(b);
     }
-    struct number Ans = New_number(len);
-
-    uint8_t carry = 0;
-    uint8_t a_bit;
-    uint8_t b_bit;
+    bool carry = 0;
+    bool a_bit;
+    bool b_bit;
     int32_t bit_len = ((int32_t)len) * 8;
-    for(int32_t bin_n = 0; bin_n < bit_len || carry; bin_n++){
-        a_bit = get_bit(a, bin_n);
-        b_bit = get_bit(b, bin_n);
-        set_bit(&Ans, bin_n, a_bit ^ b_bit ^ carry);
+    for(int32_t bit_n = 0; bit_n < bit_len || carry; bit_n++){
+        a_bit = get_bit(a, bit_n);
+        b_bit = get_bit(b, bit_n);
+        set_bit(ans, bit_n, a_bit ^ b_bit ^ carry);
         carry = (a_bit & b_bit) | (a_bit & carry) | (b_bit & carry);
     }
-    return Ans;
+
+    set_number(ret, ans);
+    del_number(ans);
 }
 
-struct number Subtract_numbers(struct number *a, struct number *b){
-    uint16_t len;
-    if((*a).len >= (*b).len){
-        len = (*a).len;
-    }else{
-        len = (*b).len;
-    }
-    struct number Ans = New_number(1);
-
-    uint8_t carry = 0;
-    uint8_t a_bit;
-    uint8_t b_bit;
-    int32_t bit_len = ((int32_t)len) * 8;
-    for(int32_t bin_n = 0; bin_n < bit_len || carry; bin_n++){
-        a_bit = get_bit(a, bin_n);
-        b_bit = get_bit(b, bin_n);
-        set_bit(&Ans, bin_n, a_bit ^ b_bit ^ carry);
-        carry = a_bit < b_bit + carry;
-    }
-    return Ans;
-}
-
-void bit_shift(struct number *n, int32_t shift){
-    struct number Temp = Copy_number(n);
-    clear_number(n);
-    int32_t bit_len = ((int32_t)(*n).len) * 8;
-    for(int32_t bit_n = 0; bit_n < bit_len; bit_n++){
-        if(bit_n + shift >= 0){
-            set_bit(n, bit_n + shift, get_bit(&Temp, bit_n));
-        }
-    }
-    del_number(&Temp);
-}
-
-struct number Multiply_numbers(struct number *a, struct number *b){
-    struct number Shifted_b = Copy_number(b);
-    struct number Ans = New_number((*b).len);
-    struct number Temp;
-    int32_t a_bit_len = ((int32_t)(*a).len) * 8;
-
-    for(int32_t shift = 0; shift < a_bit_len; shift++){
-        if(get_bit(a, shift)){
-            Temp = Add_numbers(&Ans, &Shifted_b);
-            del_number(&Ans);
-            Ans = Temp;
-        }
-        bit_shift(&Shifted_b, 1);
-    }
-    del_number(&Shifted_b);
-    return Ans;
-}
-
-uint8_t compare_numbers(struct number *a, struct number *b){
+bool compare(number a, number b){
     int32_t bit_len;
-    if((*a).len >= (*b).len){
-        bit_len = ((int32_t)(*a).len) * 8;
+    if(get_len(a) >= get_len(b)){
+        bit_len = ((int32_t) get_len(a)) * 8;
     }else{
-        bit_len = ((int32_t)(*b).len) * 8;
+        bit_len = ((int32_t) get_len(b)) * 8;
     }
-    
     for(int32_t bit_n = bit_len - 1; bit_n >= 0; bit_n--){
         if(get_bit(a, bit_n) > get_bit(b, bit_n)){
             return 1;
@@ -153,46 +123,99 @@ uint8_t compare_numbers(struct number *a, struct number *b){
     return 1;
 }
 
-struct number Divide_numbers(struct number *a, struct number *b, uint8_t if_rest){
-    int32_t a_bit_len = ((int32_t)(*a).len) * 8;
-    struct number Ans = New_number(1);
-    struct number Rest = Copy_number(a);
-    struct number Temp;
-    bit_shift(b, a_bit_len);
+void subtract(number a, number b, number ret){
+    number ans = new_number();
 
-    uint8_t is_bigger;
-    for(int32_t bit_n = a_bit_len - 1; bit_n >= 0; bit_n--){
-        bit_shift(b, -1);
-        is_bigger = compare_numbers(&Rest, b);
-        set_bit(&Ans, bit_n, is_bigger);
-        if(is_bigger){
-            Temp = Subtract_numbers(&Rest, b);
-            del_number(&Rest);
-            Rest = Temp;
+    uint16_t len;
+    if(get_len(a) > get_len(b)){
+        len = get_len(a);
+    }else{
+        len = get_len(b);
+    }
+    bool carry = 0;
+    bool a_bit;
+    bool b_bit;
+    int32_t bit_len = ((int32_t)len) * 8;
+    for(int32_t bit_n = 0; bit_n < bit_len || carry; bit_n++){
+        a_bit = get_bit(a, bit_n);
+        b_bit = get_bit(b, bit_n);
+        set_bit(ans, bit_n, a_bit ^ b_bit ^ carry);
+        carry = a_bit < b_bit + carry;
+    }
+
+    set_number(ret, ans);
+    del_number(ans);
+}
+
+void bit_shift_number(number n, int32_t shift, number ret){
+    number ans = new_number();
+
+    int32_t bit_len = ((int32_t) get_len(n)) * 8;
+    for(int32_t bit_n = 0; bit_n < bit_len; bit_n++){
+        if(bit_n + shift >= 0){
+            set_bit(ans, bit_n + shift, get_bit(n, bit_n));
         }
     }
 
-    if(if_rest){
-        del_number(&Ans);
-        return Rest;
-    }else{
-        del_number(&Rest);
-        return Ans;
-    }
+    set_number(ret, ans);
+    del_number(ans);
 }
 
-int main(){
-    struct number A = New_number(1);
-    struct number B = New_number(1);
+void multiply(number a, number b, number ret){
+    number shifted_b = new_number();
+    number ans = new_number();
 
-    A.data[0] = 0x80;
-    B.data[0] = 0x81;
-
-    struct number Ans = Divide_numbers(&A, &B, 1);
-    for(int i = Ans.len - 1; i >= 0; i--){
-        printf("%x ", Ans.data[i]);
+    set_number(shifted_b, b);
+    int32_t a_bit_len = ((int32_t) get_len(a)) * 8;
+    for(int32_t shift = 0; shift < a_bit_len; shift++){
+        if(get_bit(a, shift)){
+            add(ans, shifted_b, ans);
+        }
+        bit_shift_number(shifted_b, 1, shifted_b);
     }
 
+    set_number(ret, ans);
+    del_number(shifted_b);
+    del_number(ans);
+}
 
-    return 0;
+void divide(number a, number b, number ret_quotient, number ret_rest){
+    number ans = new_number();
+    number rest = new_number();
+    number shifted_b = new_number();
+
+    int32_t a_bit_len = ((int32_t) get_len(a)) * 8;
+    set_number(rest, a);
+    bit_shift_number(b, a_bit_len, shifted_b);
+
+    bool can_subtract;
+    for(int32_t bit_n = a_bit_len - 1; bit_n >= 0; bit_n--){
+        bit_shift_number(shifted_b, -1, shifted_b);
+        can_subtract = compare(rest, shifted_b);
+        set_bit(ans, bit_n, can_subtract);
+        if(can_subtract){
+            subtract(rest, shifted_b, rest);
+        }
+    }
+
+    if(ret_quotient){
+        set_number(ret_quotient, ans);
+    }
+    if(ret_rest){
+        set_number(ret_rest, rest);
+    }
+    del_number(ans);
+    del_number(rest);
+    del_number(shifted_b);
+}
+
+int main(int argc, char *argv[]){
+    number a = new_number();
+    number b = new_number();
+
+    set_number_from_uint8_t(a, 0x0a);
+    set_number_from_uint8_t(b, 0x03);
+    divide(a, b, a, b);
+    PRINT_NUMBER(a);
+    PRINT_NUMBER(b);
 }
