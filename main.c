@@ -3,8 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "DanglingPointer"
 typedef uint8_t bool;
 struct number_struct {
     uint16_t len;
@@ -12,17 +10,30 @@ struct number_struct {
 };
 typedef struct number_struct* number;
 
-number new_number(){
-    number new_n = (number)calloc(1, sizeof(struct number_struct));
-    (*new_n).len = 1;
-    (*new_n).data = calloc(1, 1);
-    return new_n;
-}
+FILE *input_file;
+FILE *output_file;
+
 void PRINT_NUMBER(number n){
     for(int i = (*n).len - 1; i >= 0; i--){
         printf("%x ", (*n).data[i]);
     }
     printf("\n");
+}
+
+void crash(const char *msg){
+    fprintf(stderr, "%s", msg);
+    exit(1);
+}
+
+void warning(const char *msg){
+    fprintf(stderr, "%s", msg);
+}
+
+number new_number(){
+    number new_n = (number)calloc(1, sizeof(struct number_struct));
+    (*new_n).len = 1;
+    (*new_n).data = calloc(1, 1);
+    return new_n;
 }
 
 void del_number(number n){
@@ -209,13 +220,53 @@ void divide(number a, number b, number ret_quotient, number ret_rest){
     del_number(shifted_b);
 }
 
-int main(int argc, char *argv[]){
-    number a = new_number();
-    number b = new_number();
+void close_files(){
+    fclose(input_file);
+    fclose(output_file);
+}
 
-    set_number_from_uint8_t(a, 0x0a);
-    set_number_from_uint8_t(b, 0x03);
-    divide(a, b, a, b);
-    PRINT_NUMBER(a);
-    PRINT_NUMBER(b);
+int main(int argc, char *argv[]){
+    uint64_t inp_path_len, out_path_len;
+
+    if(argc == 1){
+        fprintf(stderr, "input file not provided\n");
+        return 1;
+    }else if(argc == 2){
+        inp_path_len = strlen(argv[1]);
+        out_path_len = inp_path_len + 4;
+    }else{
+        inp_path_len = strlen(argv[1]);
+        out_path_len = strlen(argv[2]);
+    }
+    char inp_path[inp_path_len + 1];
+    char out_path[out_path_len + 1];
+    strcpy(inp_path, argv[1]);
+    if(argc == 2){
+        strcpy(out_path, "out_");
+        strcat(out_path, argv[1]);
+    }else{
+        strcpy(out_path, argv[2]);
+    }
+
+
+    input_file = fopen(inp_path, "r");
+    if(!input_file){
+        fprintf(stderr, "couldn't read %s\n", inp_path);
+        close_files();
+        return 1;
+    }
+    output_file = fopen(out_path, "w");
+    if(!output_file){
+        fprintf(stderr, "couldn't write to %s\n", out_path);
+        close_files();
+        return 1;
+    }
+
+//    int32_t chr = 0;
+//    while(chr != EOF){
+//
+//    }
+
+    close_files();
+    return 0;
 }
