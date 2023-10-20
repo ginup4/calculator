@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 typedef uint8_t bool;
 struct number_struct {
@@ -10,8 +11,13 @@ struct number_struct {
 };
 typedef struct number_struct* number;
 
-FILE *input_file;
-FILE *output_file;
+#define LINE_SIZE 256
+#define LINE_N 256
+
+FILE *input_file = NULL;
+FILE *output_file = NULL;
+char lines[LINE_N][LINE_SIZE];
+int lines_count = 0;
 
 void PRINT_NUMBER(number n){
     for(int i = (*n).len - 1; i >= 0; i--){
@@ -221,8 +227,71 @@ void divide(number a, number b, number ret_quotient, number ret_rest){
 }
 
 void close_files(){
-    fclose(input_file);
-    fclose(output_file);
+    if(input_file){
+        fclose(input_file);
+    }
+    if(output_file){
+        fclose(output_file);
+    }
+}
+
+bool is_operation(const char *str){
+    int i;
+    bool got_space = 0;
+    if(str[0] == '+' || str[0] == '*' || str[0] == '/' || str[0] == '%' || str[0] == '^'){
+        if(str[1] != ' '){
+            return 0;
+        }else{
+            i = 2;
+            got_space = 1;
+        }
+    }else{
+        i = 0;
+    }
+    for(; str[i] != '\0'; i++){
+        if(str[i] == ' '){
+            if(got_space){
+                return 0;
+            }else{
+                got_space = 1;
+            }
+        }else if(!isdigit(str[i])){
+            return 0;
+        }
+    }
+    if(!got_space){
+        return 0;
+    }
+    return 1;
+}
+
+bool is_number(const char *str){
+    for(int i = 0; str[i] != '\0'; i++){
+        if(!isalnum(str[i])){
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void execute_calculation(){
+    if(lines_count < 2){
+        return;
+    }
+    if(!is_operation(lines[0])){
+        return;
+    }
+    for(int i = 1; i < lines_count; i++){
+        if(!is_number(lines[i])){
+            return;
+        }
+    }
+
+    printf("lines: %i\n", lines_count);
+    for(int i = 0; i < lines_count; i++){
+        printf("%s\n", lines[i]);
+    }
+    printf("\n");
 }
 
 int main(int argc, char *argv[]){
@@ -262,10 +331,47 @@ int main(int argc, char *argv[]){
         return 1;
     }
 
-//    int32_t chr = 0;
-//    while(chr != EOF){
-//
-//    }
+    char buffer[LINE_SIZE];
+    int buffer_counter = 0;
+
+    bool reading_line = 0;
+    int new_lines_n = 0;
+
+    int raw_c;
+    char c;
+    while((raw_c = getc(input_file)) != EOF){
+        c = (char) raw_c;
+
+        if(c != '\n'){
+            new_lines_n = 0;
+            reading_line = 1;
+            buffer[buffer_counter] = c;
+            buffer_counter++;
+            if(buffer_counter >= LINE_SIZE - 1){
+                //line too long
+            }
+        }else{
+            new_lines_n++;
+            if(new_lines_n == 4){
+                execute_calculation();
+                lines_count = 0;
+            }
+
+            if(reading_line){
+                buffer[buffer_counter] = '\0';
+                strcpy(lines[lines_count], buffer);
+                lines_count++;
+                if(lines_count >= LINE_N){
+                    //too many lines
+                }
+                buffer_counter = 0;
+                reading_line = 0;
+            }
+        }
+    }
+    if(lines_count > 0){
+        execute_calculation();
+    }
 
     close_files();
     return 0;
