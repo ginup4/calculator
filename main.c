@@ -19,22 +19,6 @@ FILE *output_file = NULL;
 char lines[LINE_N][LINE_SIZE];
 int lines_count = 0;
 
-void PRINT_NUMBER(number n){
-    for(int i = (*n).len - 1; i >= 0; i--){
-        printf("%x ", (*n).data[i]);
-    }
-    printf("\n");
-}
-
-void crash(const char *msg){
-    fprintf(stderr, "%s", msg);
-    exit(1);
-}
-
-void warning(const char *msg){
-    fprintf(stderr, "%s", msg);
-}
-
 number new_number(){
     number new_n = (number)calloc(1, sizeof(struct number_struct));
     (*new_n).len = 1;
@@ -87,6 +71,10 @@ bool get_bit(number n, int32_t bit){
 
 uint16_t get_len(number n){
     return (*n).len;
+}
+
+uint8_t get_last_byte(number n){
+    return (*n).data[0];
 }
 
 void set_bit(number n, int32_t bit, bool val){
@@ -226,6 +214,25 @@ void divide(number a, number b, number ret_quotient, number ret_rest){
     del_number(shifted_b);
 }
 
+void exponentiate(number a, number b, number ret){
+    number ans = new_number();
+    number multiplied_a = new_number();
+    set_number_from_uint8_t(ans, 1);
+    set_number(multiplied_a, a);
+
+    int32_t b_bit_len = ((int32_t) get_len(b)) * 8;
+    for(int32_t bit_n = 0; bit_n < b_bit_len; bit_n++){
+        if(get_bit(b, bit_n)){
+            multiply(ans, multiplied_a, ans);
+        }
+        multiply(multiplied_a, multiplied_a, multiplied_a);
+    }
+
+    set_number(ret, ans);
+    del_number(ans);
+    del_number(multiplied_a);
+}
+
 void close_files(){
     if(input_file){
         fclose(input_file);
@@ -235,9 +242,35 @@ void close_files(){
     }
 }
 
+uint8_t val_of_digit(char c){
+    if('0' <= c && c <= '9'){
+        return c - '0';
+    }else if('a' <= c && c <= 'z'){
+        return c - 'a' + 10;
+    }else if('A' <= c && c <= 'Z'){
+        return c - 'A' + 10;
+    }else{
+        return 0; // shouldn't ever happen
+    }
+}
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "cppcoreguidelines-narrowing-conversions"
+char digit_of_val(uint8_t val){
+    if(val < 10){
+        return '0' + val;
+    }else if(10 <= val && val <= 16){
+        return 'a' + val - 10;
+    }else{
+        return '!';
+    }
+}
+#pragma clang diagnostic pop
+
 bool is_operation(const char *str){
     int i;
     bool got_space = 0;
+    int digit_count = 0;
     if(str[0] == '+' || str[0] == '*' || str[0] == '/' || str[0] == '%' || str[0] == '^'){
         if(str[1] != ' '){
             return 0;
@@ -245,11 +278,14 @@ bool is_operation(const char *str){
             i = 2;
             got_space = 1;
         }
-    }else{
+    }else if(isdigit(str[0])){
         i = 0;
+    }else{
+        return 0;
     }
     for(; str[i] != '\0'; i++){
         if(str[i] == ' '){
+            digit_count = 0;
             if(got_space){
                 return 0;
             }else{
@@ -257,6 +293,11 @@ bool is_operation(const char *str){
             }
         }else if(!isdigit(str[i])){
             return 0;
+        }else{
+            digit_count++;
+            if(digit_count > 2){
+                return 0;
+            }
         }
     }
     if(!got_space){
@@ -265,13 +306,69 @@ bool is_operation(const char *str){
     return 1;
 }
 
-bool is_number(const char *str){
+bool is_number(const char *str, uint8_t base){
     for(int i = 0; str[i] != '\0'; i++){
         if(!isalnum(str[i])){
             return 0;
+        }else{
+            if(val_of_digit(str[i]) >= base){
+                fprintf(stderr, "digit value greater or equal to base");
+                return 0;
+            }
         }
     }
     return 1;
+}
+
+void set_number_from_string(number n, const char *str, uint8_t base){
+    number base_number = new_number();
+    number weight = new_number();
+    number digit_val = new_number();
+    set_number_from_uint8_t(base_number, base);
+    set_number_from_uint8_t(weight, 1);
+    clear_number(n);
+
+    int i = 0;
+    while(str[i] != '\0'){
+        i++;
+    }
+    i--;
+
+    for(; i >= 0; i--){
+        set_number_from_uint8_t(digit_val, val_of_digit(str[i]));
+        multiply(digit_val, weight, digit_val);
+        add(n, digit_val, n);
+        multiply(weight, base_number, weight);
+    }
+
+    del_number(base_number);
+    del_number(weight);
+    del_number(digit_val);
+}
+
+void print_number(FILE *stream, number n, uint8_t base){
+    number base_number = new_number();
+    number weight = new_number();
+    number digit_val = new_number();
+    number zero = new_number();
+    set_number_from_uint8_t(base_number, base);
+    set_number_from_uint8_t(weight, 1);
+
+    while(compare(n, weight)){
+        multiply(weight, base_number, weight);
+    }
+    divide(weight, base_number, weight, NULL);
+
+    while(!compare(zero, weight)){
+        divide(n, weight, digit_val, n);
+        putc(digit_of_val(get_last_byte(digit_val)), stream);
+        divide(weight, base_number, weight, NULL);
+    }
+
+    del_number(base_number);
+    del_number(weight);
+    del_number(digit_val);
+    del_number(zero);
 }
 
 void execute_calculation(){
@@ -281,17 +378,101 @@ void execute_calculation(){
     if(!is_operation(lines[0])){
         return;
     }
-    for(int i = 1; i < lines_count; i++){
-        if(!is_number(lines[i])){
+    int args_count = lines_count - 1;
+    if(lines[0][0] == '/' || lines[0][0] == '%' || lines[0][0] == '^'){
+        if(args_count != 2){
+            fprintf(stderr, "division, modulo and exponentiation take exactly 2 arguments (%i were given)\n", args_count);
+            return;
+        }
+    }else if(lines[0][0] == '+' || lines[0][0] == '*'){
+        if(args_count < 2){
+            fprintf(stderr, "addition and multiplication take at least 2 arguments (%i were given)\n", args_count);
+            return;
+        }
+    }else{
+        if(args_count != 1){
+            fprintf(stderr, "number base change takes exactly 1 argument (%i were given)\n", args_count);
             return;
         }
     }
 
-    printf("lines: %i\n", lines_count);
-    for(int i = 0; i < lines_count; i++){
-        printf("%s\n", lines[i]);
+    uint8_t inp_base;
+    uint8_t out_base;
+    if(isdigit(lines[0][0])){
+        if(lines[0][1] == ' '){
+            if(lines[0][3] == '\0'){
+                inp_base = val_of_digit(lines[0][0]);
+                out_base = val_of_digit(lines[0][2]);
+            }else{
+                inp_base = val_of_digit(lines[0][0]);
+                out_base = 10 * val_of_digit(lines[0][2]) + val_of_digit(lines[0][3]);
+            }
+        }else{
+            if(lines[0][4] == '\0'){
+                inp_base = 10 * val_of_digit(lines[0][0]) + val_of_digit(lines[0][1]);
+                out_base = val_of_digit(lines[0][3]);
+            }else{
+                inp_base = 10 * val_of_digit(lines[0][0]) + val_of_digit(lines[0][1]);
+                out_base = 10 * val_of_digit(lines[0][3]) + val_of_digit(lines[0][4]);
+            }
+        }
+    }else{
+        if(lines[0][3] == '\0'){
+            inp_base = val_of_digit(lines[0][2]);
+        }else{
+            inp_base = 10 * val_of_digit(lines[0][2]) + val_of_digit(lines[0][3]);
+        }
+        out_base = inp_base;
     }
-    printf("\n");
+
+    if(!(2 <= inp_base && inp_base <= 16)){
+        fprintf(stderr, "input number base out of range (%i)\n", inp_base);
+        return;
+    }
+    if(!(2 <= out_base && out_base <= 16)){
+        fprintf(stderr, "output number base out of range (%i)\n", out_base);
+        return;
+    }
+
+    for(int i = 1; i < lines_count; i++){
+        if(!is_number(lines[i], inp_base)){
+            return;
+        }
+    }
+
+    number a = new_number();
+    number b = new_number();
+
+    set_number_from_string(a, lines[1], inp_base);
+    for(int i = 2; i < lines_count; i++){
+        set_number_from_string(b, lines[i], inp_base);
+        switch(lines[0][0]){
+            case '+':
+                add(a, b, a);
+                break;
+            case '*':
+                multiply(a, b, a);
+                break;
+            case '/':
+                divide(a, b, a, NULL);
+                break;
+            case '%':
+                divide(a, b, NULL, a);
+                break;
+            case '^':
+                exponentiate(a, b, a);
+                break;
+        }
+    }
+
+    for(int i = 0; i < lines_count; i++){
+        fprintf(output_file, "%s\n\n", lines[i]);
+    }
+    print_number(output_file, a, out_base);
+    fprintf(output_file, "\n\n");
+
+    del_number(a);
+    del_number(b);
 }
 
 int main(int argc, char *argv[]){
@@ -333,7 +514,6 @@ int main(int argc, char *argv[]){
 
     char buffer[LINE_SIZE];
     int buffer_counter = 0;
-
     bool reading_line = 0;
     int new_lines_n = 0;
 
