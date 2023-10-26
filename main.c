@@ -3,11 +3,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 
 typedef uint8_t bool;
+typedef uint32_t chunk;
+typedef uint64_t dblchunk;
+typedef int32_t signed_chunk;
+typedef int64_t signed_dblchunk;
+typedef uint32_t len_t;
+typedef int64_t bit_len_t;
+const int chunk_size = sizeof(chunk);
+const int chunk_bit_size = sizeof(chunk) * 8;
 struct number_struct {
-    uint16_t len;
-    uint8_t *data;
+    len_t len;
+    chunk *data;
 };
 typedef struct number_struct* number;
 
@@ -19,11 +28,15 @@ FILE *output_file = NULL;
 char lines[LINE_N][LINE_SIZE];
 int lines_count = 0;
 
-number new_number(){
+number new_number(len_t len){
     number new_n = (number)calloc(1, sizeof(struct number_struct));
-    (*new_n).len = 1;
-    (*new_n).data = calloc(1, 1);
+    (*new_n).len = len;
+    (*new_n).data = calloc((*new_n).len, chunk_size);
     return new_n;
+}
+
+len_t bits_to_len(bit_len_t bit_len){
+    return bit_len / chunk_bit_size + (bit_len % chunk_bit_size > 0);
 }
 
 void del_number(number n){
@@ -32,79 +45,147 @@ void del_number(number n){
 }
 
 void set_number(number n, number val){
-    (*n).len = (*val).len;
+    len_t len = (*val).len;
+    for(; len > 0; len--){
+        if((*val).data[len - 1]){
+            break;
+        }
+    }
+    (*n).len = len;
     free((*n).data);
-    (*n).data = calloc((*val).len, 1);
-    memcpy((*n).data, (*val).data, (*val).len);
+    (*n).data = calloc(len, chunk_size);
+    memcpy((*n).data, (*val).data, len * chunk_size);
 }
 
 void clear_number(number n){
     free((*n).data);
     (*n).len = 1;
-    (*n).data = calloc(1, 1);
+    (*n).data = calloc(1, chunk_size);
 }
 
-void set_number_from_uint8_t(number n, uint8_t val){
+void set_number_from_chunk(number n, chunk val){
     clear_number(n);
     (*n).data[0] = val;
 }
 
-void extend_number(number n, uint16_t new_len){
-    uint16_t old_len = (*n).len;
-    uint8_t *old_data = (*n).data;
+void extend_number(number n, len_t new_len){
+    len_t old_len = (*n).len;
+    chunk *old_data = (*n).data;
     (*n).len = new_len;
-    (*n).data = calloc(new_len, 1);
-    memcpy((*n).data, old_data, old_len);
+    (*n).data = calloc(new_len, chunk_size);
+    memcpy((*n).data, old_data, old_len * chunk_size);
 }
 
-bool get_bit(number n, int32_t bit){
-    if(bit >= ((int32_t)(*n).len) * 8){
+bool get_bit(number n, bit_len_t bit){
+    if(bit >= ((bit_len_t)(*n).len) * chunk_bit_size){
         return 0;
     }
-    uint8_t mask = 0b00000001 << (bit % 8);
-    if((*n).data[bit / 8] & mask){
+    chunk mask = 1 << (bit % chunk_bit_size);
+    if((*n).data[bit / chunk_bit_size] & mask){
         return 1;
     }else{
         return 0;
     }
 }
 
-uint16_t get_len(number n){
-    return (*n).len;
+bit_len_t get_bit_len(number n){
+    bit_len_t bit_n = ((bit_len_t)(*n).len) * chunk_bit_size;
+    for(; bit_n > 0; bit_n--){
+        if(get_bit(n, bit_n - 1)){
+            return bit_n;
+        }
+    }
+    return 0;
 }
 
-uint8_t get_last_byte(number n){
+chunk get_last_chunk(number n){
     return (*n).data[0];
 }
 
-void set_bit(number n, int32_t bit, bool val){
+void set_bit(number n, bit_len_t bit, bool val){
     if(val){
-        if(bit >= ((int32_t)(*n).len) * 8){
-            extend_number(n, bit / 8 + 1);
+        if(bit >= ((bit_len_t)(*n).len) * chunk_bit_size){
+            extend_number(n, bit / chunk_bit_size + 1);
         }
-        uint8_t mask = 0b00000001 << (bit % 8);
-        (*n).data[bit / 8] = (*n).data[bit / 8] | mask;
+        chunk mask = 1 << (bit % chunk_bit_size);
+        (*n).data[bit / chunk_bit_size] = (*n).data[bit / chunk_bit_size] | mask;
     }
 }
 
-void add(number a, number b, number ret){
-    number ans = new_number();
+//void add(number a, number b, number ret){
+//    bit_len_t a_bit_len = get_bit_len(a);
+//    bit_len_t b_bit_len = get_bit_len(b);
+//    bit_len_t bit_len = a_bit_len > b_bit_len ? a_bit_len : b_bit_len;
+//
+//    number ans = new_number(bits_to_len(bit_len));
+//
+//    bool carry = 0;
+//    bool a_bit;
+//    bool b_bit;
+//    for(bit_len_t bit_n = 0; bit_n < bit_len || carry; bit_n++){
+//        a_bit = get_bit(a, bit_n);
+//        b_bit = get_bit(b, bit_n);
+//        set_bit(ans, bit_n, a_bit ^ b_bit ^ carry);
+//        carry = (a_bit & b_bit) | (a_bit & carry) | (b_bit & carry);
+//    }
+//
+//    set_number(ret, ans);
+//    del_number(ans);
+//}
 
-    uint16_t len;
-    if(get_len(a) > get_len(b)){
-        len = get_len(a);
+void add(number a, number b, number ret, len_t chunk_shift){
+    len_t n1_shift = 0;
+    len_t n2_shift = 0;
+    len_t len;
+    len_t small_len;
+    number n1, n2;
+    if((*a).len >= (*b).len + chunk_shift){
+        small_len = (*b).len + chunk_shift;
+        len = (*a).len;
+        n1 = a;
+        n2 = b;
+        n2_shift = chunk_shift;
     }else{
-        len = get_len(b);
+        small_len = (*a).len;
+        len = (*b).len + chunk_shift;
+        n1 = b;
+        n2 = a;
+        n1_shift = chunk_shift;
     }
-    bool carry = 0;
-    bool a_bit;
-    bool b_bit;
-    int32_t bit_len = ((int32_t)len) * 8;
-    for(int32_t bit_n = 0; bit_n < bit_len || carry; bit_n++){
-        a_bit = get_bit(a, bit_n);
-        b_bit = get_bit(b, bit_n);
-        set_bit(ans, bit_n, a_bit ^ b_bit ^ carry);
-        carry = (a_bit & b_bit) | (a_bit & carry) | (b_bit & carry);
+    number ans = new_number(len);
+
+    dblchunk n1_dblchunk;
+    dblchunk n2_dblchunk;
+    chunk carry = 0;
+    len_t i = 0;
+    for(; i < small_len; i++){
+        if(i < n1_shift){
+            n1_dblchunk = 0;
+        }else{
+            n1_dblchunk = (*n1).data[i - n1_shift];
+        }
+        if(i < n2_shift){
+            n2_dblchunk = 0;
+        }else{
+            n2_dblchunk = (*n2).data[i - n2_shift];
+        }
+        n1_dblchunk = n1_dblchunk + n2_dblchunk + carry;
+        carry = n1_dblchunk >> chunk_bit_size;
+        (*ans).data[i] = (chunk) n1_dblchunk;
+    }
+    for(; i < len; i++){
+        if(i < n1_shift){
+            n1_dblchunk = 0;
+        }else{
+            n1_dblchunk = (*n1).data[i - n1_shift];
+        }
+        n1_dblchunk = n1_dblchunk + carry;
+        carry = n1_dblchunk >> chunk_bit_size;
+        (*ans).data[i] = (chunk) n1_dblchunk;
+    }
+    if(carry){
+        extend_number(ans, len + 1);
+        (*ans).data[len] = carry;
     }
 
     set_number(ret, ans);
@@ -112,13 +193,11 @@ void add(number a, number b, number ret){
 }
 
 bool compare(number a, number b){
-    int32_t bit_len;
-    if(get_len(a) >= get_len(b)){
-        bit_len = ((int32_t) get_len(a)) * 8;
-    }else{
-        bit_len = ((int32_t) get_len(b)) * 8;
-    }
-    for(int32_t bit_n = bit_len - 1; bit_n >= 0; bit_n--){
+    bit_len_t a_bit_len = get_bit_len(a);
+    bit_len_t b_bit_len = get_bit_len(b);
+    bit_len_t bit_len = a_bit_len > b_bit_len ? a_bit_len : b_bit_len;
+
+    for(bit_len_t bit_n = bit_len - 1; bit_n >= 0; bit_n--){
         if(get_bit(a, bit_n) > get_bit(b, bit_n)){
             return 1;
         }else if(get_bit(a, bit_n) < get_bit(b, bit_n)){
@@ -128,35 +207,61 @@ bool compare(number a, number b){
     return 1;
 }
 
-void subtract(number a, number b, number ret){
-    number ans = new_number();
+//void subtract(number a, number b, number ret){
+//    bit_len_t a_bit_len = get_bit_len(a);
+//    bit_len_t b_bit_len = get_bit_len(b);
+//    bit_len_t bit_len = a_bit_len > b_bit_len ? a_bit_len : b_bit_len;
+//
+//    number ans = new_number(bits_to_len(bit_len));
+//
+//    bool carry = 0;
+//    bool a_bit;
+//    bool b_bit;
+//    for(bit_len_t bit_n = 0; bit_n < bit_len || carry; bit_n++){
+//        a_bit = get_bit(a, bit_n);
+//        b_bit = get_bit(b, bit_n);
+//        set_bit(ans, bit_n, a_bit ^ b_bit ^ carry);
+//        carry = a_bit < b_bit + carry;
+//    }
+//
+//    set_number(ret, ans);
+//    del_number(ans);
+//}
 
-    uint16_t len;
-    if(get_len(a) > get_len(b)){
-        len = get_len(a);
-    }else{
-        len = get_len(b);
+void subtract(number a, number b, number ret){
+    len_t a_len = (*a).len;
+    len_t b_len = (*b).len;
+    number ans = new_number((*a).len);
+
+    signed_dblchunk a_dblchunk;
+    signed_dblchunk b_dblchunk;
+    dblchunk ans_chunk;
+    signed_chunk carry = 0;
+
+    len_t i = 0;
+    for(; i < b_len; i++){
+        a_dblchunk = (*a).data[i];
+        b_dblchunk = (*b).data[i];
+        a_dblchunk = a_dblchunk - b_dblchunk + carry;
+        (*ans).data[i] = (chunk) * (dblchunk*) &a_dblchunk;
+        carry = (signed_chunk) (a_dblchunk >> chunk_bit_size);
     }
-    bool carry = 0;
-    bool a_bit;
-    bool b_bit;
-    int32_t bit_len = ((int32_t)len) * 8;
-    for(int32_t bit_n = 0; bit_n < bit_len || carry; bit_n++){
-        a_bit = get_bit(a, bit_n);
-        b_bit = get_bit(b, bit_n);
-        set_bit(ans, bit_n, a_bit ^ b_bit ^ carry);
-        carry = a_bit < b_bit + carry;
+    for(; i < a_len; i++){
+        a_dblchunk = (*a).data[i];
+        a_dblchunk = a_dblchunk + carry;
+        (*ans).data[i] = (chunk) * (dblchunk*) &a_dblchunk;
+        carry = (signed_chunk) (a_dblchunk >> chunk_bit_size);
     }
 
     set_number(ret, ans);
     del_number(ans);
 }
 
-void bit_shift_number(number n, int32_t shift, number ret){
-    number ans = new_number();
+void bit_shift(number n, bit_len_t shift, number ret){
+    bit_len_t bit_len = get_bit_len(n);
+    number ans = new_number(bits_to_len(bit_len + shift));
 
-    int32_t bit_len = ((int32_t) get_len(n)) * 8;
-    for(int32_t bit_n = 0; bit_n < bit_len; bit_n++){
+    for(bit_len_t bit_n = 0; bit_n < bit_len; bit_n++){
         if(bit_n + shift >= 0){
             set_bit(ans, bit_n + shift, get_bit(n, bit_n));
         }
@@ -166,62 +271,114 @@ void bit_shift_number(number n, int32_t shift, number ret){
     del_number(ans);
 }
 
-void multiply(number a, number b, number ret){
-    number shifted_b = new_number();
-    number ans = new_number();
+//void multiply(number a, number b, number ret){
+//    bit_len_t a_bit_len = get_bit_len(a);
+//    bit_len_t b_bit_len = get_bit_len(b);
+//    number shifted_b = new_number(a_bit_len + b_bit_len);
+//    number ans = new_number(a_bit_len + b_bit_len);
+//
+//    set_number(shifted_b, b);
+//    for(bit_len_t shift = 0; shift < a_bit_len; shift++){
+//        if(get_bit(a, shift)){
+//            add(ans, shifted_b, ans, 0);
+//        }
+//        bit_shift_number(shifted_b, 1, shifted_b);
+//    }
+//
+//    set_number(ret, ans);
+//    del_number(shifted_b);
+//    del_number(ans);
+//}
 
-    set_number(shifted_b, b);
-    int32_t a_bit_len = ((int32_t) get_len(a)) * 8;
-    for(int32_t shift = 0; shift < a_bit_len; shift++){
-        if(get_bit(a, shift)){
-            add(ans, shifted_b, ans);
+void multiply(number a, number b, number ret){
+    number ans = new_number(1);
+    number partial_ans = new_number((*b).len);
+    number partial_carry = new_number((*b).len);
+
+    dblchunk a_dblchunk;
+    dblchunk b_dblchunk;
+    chunk carry = 0;
+    for(len_t a_chunk_n = 0; a_chunk_n < (*a).len; a_chunk_n++){
+        a_dblchunk = (*a).data[a_chunk_n];
+        for(len_t b_chunk_n = 0; b_chunk_n < (*b).len; b_chunk_n++){
+            b_dblchunk = (*b).data[b_chunk_n];
+            b_dblchunk = a_dblchunk * b_dblchunk;
+            (*partial_ans).data[b_chunk_n] = (chunk) b_dblchunk;
+            (*partial_carry).data[b_chunk_n] = b_dblchunk >> chunk_bit_size;
         }
-        bit_shift_number(shifted_b, 1, shifted_b);
+        add(ans, partial_ans, ans, a_chunk_n);
+        add(ans, partial_carry, ans, a_chunk_n + 1);
     }
 
+    del_number(partial_ans);
+    del_number(partial_carry);
     set_number(ret, ans);
-    del_number(shifted_b);
     del_number(ans);
 }
 
+//void divide(number a, number b, number ret_quotient, number ret_rest){
+//    bit_len_t a_bit_len = get_bit_len(a);
+//    bit_len_t b_bit_len = get_bit_len(b);
+//    number ans = new_number(bits_to_len(a_bit_len - b_bit_len));
+//    number rest = new_number(bits_to_len(b_bit_len));
+//    number shifted_b = new_number(bits_to_len(a_bit_len + b_bit_len));
+//
+//    set_number(rest, a);
+//    bit_shift_number(b, a_bit_len, shifted_b);
+//
+//    bool can_subtract;
+//    for(bit_len_t bit_n = a_bit_len - 1; bit_n >= 0; bit_n--){
+//        bit_shift_number(shifted_b, -1, shifted_b);
+//        can_subtract = compare(rest, shifted_b);
+//        set_bit(ans, bit_n, can_subtract);
+//        if(can_subtract){
+//            subtract(rest, shifted_b, rest);
+//        }
+//    }
+//
+//    if(ret_quotient){
+//        set_number(ret_quotient, ans);
+//    }
+//    if(ret_rest){
+//        set_number(ret_rest, rest);
+//    }
+//    del_number(ans);
+//    del_number(rest);
+//    del_number(shifted_b);
+//}
+
 void divide(number a, number b, number ret_quotient, number ret_rest){
-    number ans = new_number();
-    number rest = new_number();
-    number shifted_b = new_number();
+    number quotient = new_number(1);
+    number rest = new_number(1);
 
-    int32_t a_bit_len = ((int32_t) get_len(a)) * 8;
-    set_number(rest, a);
-    bit_shift_number(b, a_bit_len, shifted_b);
-
-    bool can_subtract;
-    for(int32_t bit_n = a_bit_len - 1; bit_n >= 0; bit_n--){
-        bit_shift_number(shifted_b, -1, shifted_b);
-        can_subtract = compare(rest, shifted_b);
-        set_bit(ans, bit_n, can_subtract);
-        if(can_subtract){
-            subtract(rest, shifted_b, rest);
+    for(bit_len_t bit_n = get_bit_len(a) - 1; bit_n >= 0; bit_n--){
+        bit_shift(rest, 1, rest);
+        set_bit(rest, 0, get_bit(a, bit_n));
+        if(compare(rest, b)){
+            subtract(rest, b, rest);
+            set_bit(quotient, bit_n, 1);
         }
     }
 
     if(ret_quotient){
-        set_number(ret_quotient, ans);
+        set_number(ret_quotient, quotient);
     }
     if(ret_rest){
         set_number(ret_rest, rest);
     }
-    del_number(ans);
+    del_number(quotient);
     del_number(rest);
-    del_number(shifted_b);
 }
 
 void exponentiate(number a, number b, number ret){
-    number ans = new_number();
-    number multiplied_a = new_number();
-    set_number_from_uint8_t(ans, 1);
+    bit_len_t b_bit_len = get_bit_len(b);
+
+    number ans = new_number(1);
+    number multiplied_a = new_number(1);
+    set_number_from_chunk(ans, 1);
     set_number(multiplied_a, a);
 
-    int32_t b_bit_len = ((int32_t) get_len(b)) * 8;
-    for(int32_t bit_n = 0; bit_n < b_bit_len; bit_n++){
+    for(bit_len_t bit_n = 0; bit_n < b_bit_len; bit_n++){
         if(get_bit(b, bit_n)){
             multiply(ans, multiplied_a, ans);
         }
@@ -242,7 +399,7 @@ void close_files(){
     }
 }
 
-uint8_t val_of_digit(char c){
+chunk val_of_digit(char c){
     if('0' <= c && c <= '9'){
         return c - '0';
     }else if('a' <= c && c <= 'z'){
@@ -256,10 +413,10 @@ uint8_t val_of_digit(char c){
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "cppcoreguidelines-narrowing-conversions"
-char digit_of_val(uint8_t val){
+char digit_of_val(chunk val){
     if(val < 10){
         return '0' + val;
-    }else if(10 <= val && val <= 16){
+    }else if(val <= 16){
         return 'a' + val - 10;
     }else{
         return '!';
@@ -306,7 +463,7 @@ bool is_operation(const char *str){
     return 1;
 }
 
-bool is_number(const char *str, uint8_t base){
+bool is_number(const char *str, chunk base){
     for(int i = 0; str[i] != '\0'; i++){
         if(!isalnum(str[i])){
             return 0;
@@ -320,12 +477,12 @@ bool is_number(const char *str, uint8_t base){
     return 1;
 }
 
-void set_number_from_string(number n, const char *str, uint8_t base){
-    number base_number = new_number();
-    number weight = new_number();
-    number digit_val = new_number();
-    set_number_from_uint8_t(base_number, base);
-    set_number_from_uint8_t(weight, 1);
+void set_number_from_string(number n, const char *str, chunk base){
+    number base_number = new_number(1);
+    number weight = new_number(1);
+    number digit_val = new_number(1);
+    set_number_from_chunk(base_number, base);
+    set_number_from_chunk(weight, 1);
     clear_number(n);
 
     int i = 0;
@@ -335,9 +492,9 @@ void set_number_from_string(number n, const char *str, uint8_t base){
     i--;
 
     for(; i >= 0; i--){
-        set_number_from_uint8_t(digit_val, val_of_digit(str[i]));
+        set_number_from_chunk(digit_val, val_of_digit(str[i]));
         multiply(digit_val, weight, digit_val);
-        add(n, digit_val, n);
+        add(n, digit_val, n, 0);
         multiply(weight, base_number, weight);
     }
 
@@ -346,13 +503,14 @@ void set_number_from_string(number n, const char *str, uint8_t base){
     del_number(digit_val);
 }
 
-void print_number(FILE *stream, number n, uint8_t base){
-    number base_number = new_number();
-    number weight = new_number();
-    number digit_val = new_number();
-    number zero = new_number();
-    set_number_from_uint8_t(base_number, base);
-    set_number_from_uint8_t(weight, 1);
+void print_number(FILE *stream, number n, chunk base){
+    number base_number = new_number(1);
+    number weight = new_number(1);
+    number digit_val = new_number(1);
+    number zero = new_number(1);
+
+    set_number_from_chunk(base_number, base);
+    set_number_from_chunk(weight, 1);
 
     while(compare(n, weight)){
         multiply(weight, base_number, weight);
@@ -361,7 +519,7 @@ void print_number(FILE *stream, number n, uint8_t base){
 
     while(!compare(zero, weight)){
         divide(n, weight, digit_val, n);
-        putc(digit_of_val(get_last_byte(digit_val)), stream);
+        putc(digit_of_val(get_last_chunk(digit_val)), stream);
         divide(weight, base_number, weight, NULL);
     }
 
@@ -396,8 +554,8 @@ void execute_calculation(){
         }
     }
 
-    uint8_t inp_base;
-    uint8_t out_base;
+    chunk inp_base;
+    chunk out_base;
     if(isdigit(lines[0][0])){
         if(lines[0][1] == ' '){
             if(lines[0][3] == '\0'){
@@ -426,11 +584,11 @@ void execute_calculation(){
     }
 
     if(!(2 <= inp_base && inp_base <= 16)){
-        fprintf(stderr, "input number base out of range (%i)\n", inp_base);
+        fprintf(stderr, "input number base out of range (%u)\n", inp_base);
         return;
     }
     if(!(2 <= out_base && out_base <= 16)){
-        fprintf(stderr, "output number base out of range (%i)\n", out_base);
+        fprintf(stderr, "output number base out of range (%u)\n", out_base);
         return;
     }
 
@@ -440,15 +598,15 @@ void execute_calculation(){
         }
     }
 
-    number a = new_number();
-    number b = new_number();
+    number a = new_number(1);
+    number b = new_number(1);
 
     set_number_from_string(a, lines[1], inp_base);
     for(int i = 2; i < lines_count; i++){
         set_number_from_string(b, lines[i], inp_base);
         switch(lines[0][0]){
             case '+':
-                add(a, b, a);
+                add(a, b, a, 0);
                 break;
             case '*':
                 multiply(a, b, a);
@@ -464,12 +622,14 @@ void execute_calculation(){
                 break;
         }
     }
+    printf("calc done (%u chunks long)\n", (*a).len);
 
     for(int i = 0; i < lines_count; i++){
         fprintf(output_file, "%s\n\n", lines[i]);
     }
     print_number(output_file, a, out_base);
     fprintf(output_file, "\n\n");
+    printf("printing to file done\n");
 
     del_number(a);
     del_number(b);
@@ -511,6 +671,15 @@ int main(int argc, char *argv[]){
         close_files();
         return 1;
     }
+
+//    number a = new_number(1);
+//    number b = new_number(1);
+//    set_number_from_chunk(a, 123);
+//    set_number_from_chunk(b, 100);
+//    add(a, b, a);
+//    print_number(output_file, a, 16);
+//    printf("%u\n", get_last_chunk(a));
+
 
     char buffer[LINE_SIZE];
     int buffer_counter = 0;
