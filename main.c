@@ -4,6 +4,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <math.h> // only to calculate how many digits a number has
 
 typedef uint8_t bool;
 typedef uint32_t chunk;
@@ -20,7 +21,7 @@ struct number_struct {
 };
 typedef struct number_struct* number;
 
-#define LINE_SIZE 256
+#define LINE_SIZE 64
 #define LINE_N 256
 
 FILE *input_file = NULL;
@@ -112,27 +113,6 @@ void set_bit(number n, bit_len_t bit, bool val){
     }
 }
 
-//void add(number a, number b, number ret){
-//    bit_len_t a_bit_len = get_bit_len(a);
-//    bit_len_t b_bit_len = get_bit_len(b);
-//    bit_len_t bit_len = a_bit_len > b_bit_len ? a_bit_len : b_bit_len;
-//
-//    number ans = new_number(bits_to_len(bit_len));
-//
-//    bool carry = 0;
-//    bool a_bit;
-//    bool b_bit;
-//    for(bit_len_t bit_n = 0; bit_n < bit_len || carry; bit_n++){
-//        a_bit = get_bit(a, bit_n);
-//        b_bit = get_bit(b, bit_n);
-//        set_bit(ans, bit_n, a_bit ^ b_bit ^ carry);
-//        carry = (a_bit & b_bit) | (a_bit & carry) | (b_bit & carry);
-//    }
-//
-//    set_number(ret, ans);
-//    del_number(ans);
-//}
-
 void add(number a, number b, number ret, len_t chunk_shift){
     len_t n1_shift = 0;
     len_t n2_shift = 0;
@@ -207,27 +187,6 @@ bool compare(number a, number b){
     return 1;
 }
 
-//void subtract(number a, number b, number ret){
-//    bit_len_t a_bit_len = get_bit_len(a);
-//    bit_len_t b_bit_len = get_bit_len(b);
-//    bit_len_t bit_len = a_bit_len > b_bit_len ? a_bit_len : b_bit_len;
-//
-//    number ans = new_number(bits_to_len(bit_len));
-//
-//    bool carry = 0;
-//    bool a_bit;
-//    bool b_bit;
-//    for(bit_len_t bit_n = 0; bit_n < bit_len || carry; bit_n++){
-//        a_bit = get_bit(a, bit_n);
-//        b_bit = get_bit(b, bit_n);
-//        set_bit(ans, bit_n, a_bit ^ b_bit ^ carry);
-//        carry = a_bit < b_bit + carry;
-//    }
-//
-//    set_number(ret, ans);
-//    del_number(ans);
-//}
-
 void subtract(number a, number b, number ret){
     len_t a_len = (*a).len;
     len_t b_len = (*b).len;
@@ -235,7 +194,6 @@ void subtract(number a, number b, number ret){
 
     signed_dblchunk a_dblchunk;
     signed_dblchunk b_dblchunk;
-    dblchunk ans_chunk;
     signed_chunk carry = 0;
 
     len_t i = 0;
@@ -271,25 +229,6 @@ void bit_shift(number n, bit_len_t shift, number ret){
     del_number(ans);
 }
 
-//void multiply(number a, number b, number ret){
-//    bit_len_t a_bit_len = get_bit_len(a);
-//    bit_len_t b_bit_len = get_bit_len(b);
-//    number shifted_b = new_number(a_bit_len + b_bit_len);
-//    number ans = new_number(a_bit_len + b_bit_len);
-//
-//    set_number(shifted_b, b);
-//    for(bit_len_t shift = 0; shift < a_bit_len; shift++){
-//        if(get_bit(a, shift)){
-//            add(ans, shifted_b, ans, 0);
-//        }
-//        bit_shift_number(shifted_b, 1, shifted_b);
-//    }
-//
-//    set_number(ret, ans);
-//    del_number(shifted_b);
-//    del_number(ans);
-//}
-
 void multiply(number a, number b, number ret){
     number ans = new_number(1);
     number partial_ans = new_number((*b).len);
@@ -297,7 +236,6 @@ void multiply(number a, number b, number ret){
 
     dblchunk a_dblchunk;
     dblchunk b_dblchunk;
-    chunk carry = 0;
     for(len_t a_chunk_n = 0; a_chunk_n < (*a).len; a_chunk_n++){
         a_dblchunk = (*a).data[a_chunk_n];
         for(len_t b_chunk_n = 0; b_chunk_n < (*b).len; b_chunk_n++){
@@ -315,37 +253,6 @@ void multiply(number a, number b, number ret){
     set_number(ret, ans);
     del_number(ans);
 }
-
-//void divide(number a, number b, number ret_quotient, number ret_rest){
-//    bit_len_t a_bit_len = get_bit_len(a);
-//    bit_len_t b_bit_len = get_bit_len(b);
-//    number ans = new_number(bits_to_len(a_bit_len - b_bit_len));
-//    number rest = new_number(bits_to_len(b_bit_len));
-//    number shifted_b = new_number(bits_to_len(a_bit_len + b_bit_len));
-//
-//    set_number(rest, a);
-//    bit_shift_number(b, a_bit_len, shifted_b);
-//
-//    bool can_subtract;
-//    for(bit_len_t bit_n = a_bit_len - 1; bit_n >= 0; bit_n--){
-//        bit_shift_number(shifted_b, -1, shifted_b);
-//        can_subtract = compare(rest, shifted_b);
-//        set_bit(ans, bit_n, can_subtract);
-//        if(can_subtract){
-//            subtract(rest, shifted_b, rest);
-//        }
-//    }
-//
-//    if(ret_quotient){
-//        set_number(ret_quotient, ans);
-//    }
-//    if(ret_rest){
-//        set_number(ret_rest, rest);
-//    }
-//    del_number(ans);
-//    del_number(rest);
-//    del_number(shifted_b);
-//}
 
 void divide(number a, number b, number ret_quotient, number ret_rest){
     number quotient = new_number(1);
@@ -504,32 +411,32 @@ void set_number_from_string(number n, const char *str, chunk base){
 }
 
 void print_number(FILE *stream, number n, chunk base){
+    int str_len = (int) (ceil((double)(*n).len * 32 / log2(base)) + 8);
+    char *out_str = (char *) malloc(str_len);
+
     number base_number = new_number(1);
-    number weight = new_number(1);
     number digit_val = new_number(1);
     number zero = new_number(1);
-
     set_number_from_chunk(base_number, base);
-    set_number_from_chunk(weight, 1);
 
-    while(compare(n, weight)){
-        multiply(weight, base_number, weight);
+    int i = 0;
+    for(; !compare(zero, n); i++){
+        divide(n, base_number, n, digit_val);
+        out_str[i] = digit_of_val(get_last_chunk(digit_val));
     }
-    divide(weight, base_number, weight, NULL);
+    out_str[i] = '\0';
+    printf("output len: %i\n", i);
+    strrev(out_str);
 
-    while(!compare(zero, weight)){
-        divide(n, weight, digit_val, n);
-        putc(digit_of_val(get_last_chunk(digit_val)), stream);
-        divide(weight, base_number, weight, NULL);
-    }
+    fprintf(stream, "%s", out_str);
 
     del_number(base_number);
-    del_number(weight);
     del_number(digit_val);
     del_number(zero);
 }
 
 void execute_calculation(){
+    float t1, t2, t3;
     if(lines_count < 2){
         return;
     }
@@ -601,6 +508,7 @@ void execute_calculation(){
     number a = new_number(1);
     number b = new_number(1);
 
+    t1 = (float) clock() / CLOCKS_PER_SEC;
     set_number_from_string(a, lines[1], inp_base);
     for(int i = 2; i < lines_count; i++){
         set_number_from_string(b, lines[i], inp_base);
@@ -622,14 +530,18 @@ void execute_calculation(){
                 break;
         }
     }
-    printf("calc done (%u chunks long)\n", (*a).len);
+    t2 = (float) clock() / CLOCKS_PER_SEC;
 
     for(int i = 0; i < lines_count; i++){
         fprintf(output_file, "%s\n\n", lines[i]);
     }
     print_number(output_file, a, out_base);
     fprintf(output_file, "\n\n");
-    printf("printing to file done\n");
+
+    t3 = (float) clock() / CLOCKS_PER_SEC;
+
+    printf("calculating: %f secs\n", t2 - t1);
+    printf("printing: %f secs\n", t3 - t2);
 
     del_number(a);
     del_number(b);
