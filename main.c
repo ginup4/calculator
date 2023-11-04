@@ -99,10 +99,6 @@ bit_len_t get_bit_len(number n){
     return 0;
 }
 
-chunk get_last_chunk(number n){
-    return (*n).data[0];
-}
-
 void set_bit(number n, bit_len_t bit, bool val){
     if(val){
         if(bit >= ((bit_len_t)(*n).len) * chunk_bit_size){
@@ -277,6 +273,23 @@ void divide(number a, number b, number ret_quotient, number ret_rest){
     del_number(rest);
 }
 
+void long_divide(number a, chunk b, number ret_quotient, chunk *ret_rest){
+    len_t len = (*a).len;
+    number quotient = new_number(len);
+    dblchunk a_dblchunk = 0;
+
+    for(len_t i = 0; i < len; i++){
+        a_dblchunk = a_dblchunk << chunk_bit_size;
+        a_dblchunk = a_dblchunk + (*a).data[len - i - 1];
+        (*quotient).data[len - i - 1] = a_dblchunk / b;
+        a_dblchunk = a_dblchunk % b;
+    }
+
+    *ret_rest = (chunk) a_dblchunk;
+    set_number(ret_quotient, quotient);
+    del_number(quotient);
+}
+
 void exponentiate(number a, number b, number ret){
     bit_len_t b_bit_len = get_bit_len(b);
 
@@ -376,7 +389,7 @@ bool is_number(const char *str, chunk base){
             return 0;
         }else{
             if(val_of_digit(str[i]) >= base){
-                fprintf(stderr, "digit value greater or equal to base");
+                fprintf(stderr, "digit value greater or equal to base\n");
                 return 0;
             }
         }
@@ -411,27 +424,24 @@ void set_number_from_string(number n, const char *str, chunk base){
 }
 
 void print_number(FILE *stream, number n, chunk base){
+    printf("result chunks: %u\n", (*n).len);
     int str_len = (int) (ceil((double)(*n).len * 32 / log2(base)) + 8);
     char *out_str = (char *) malloc(str_len);
 
-    number base_number = new_number(1);
-    number digit_val = new_number(1);
+    chunk digit_val;
     number zero = new_number(1);
-    set_number_from_chunk(base_number, base);
 
     int i = 0;
     for(; !compare(zero, n); i++){
-        divide(n, base_number, n, digit_val);
-        out_str[i] = digit_of_val(get_last_chunk(digit_val));
+        long_divide(n, base, n, &digit_val);
+        out_str[i] = digit_of_val(digit_val);
     }
     out_str[i] = '\0';
-    printf("output len: %i\n", i);
+    printf("output digits: %i\n", i);
     strrev(out_str);
 
     fprintf(stream, "%s", out_str);
 
-    del_number(base_number);
-    del_number(digit_val);
     del_number(zero);
 }
 
@@ -583,15 +593,6 @@ int main(int argc, char *argv[]){
         close_files();
         return 1;
     }
-
-//    number a = new_number(1);
-//    number b = new_number(1);
-//    set_number_from_chunk(a, 123);
-//    set_number_from_chunk(b, 100);
-//    add(a, b, a);
-//    print_number(output_file, a, 16);
-//    printf("%u\n", get_last_chunk(a));
-
 
     char buffer[LINE_SIZE];
     int buffer_counter = 0;
