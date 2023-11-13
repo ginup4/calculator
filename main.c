@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <time.h>
 #include <math.h> // only to calculate how many digits a number has
 
+//type definitions
 typedef uint8_t bool;
 typedef uint32_t chunk;
 typedef uint64_t dblchunk;
@@ -21,14 +21,29 @@ struct number_struct {
 };
 typedef struct number_struct* number;
 
-#define LINE_SIZE 64
-#define LINE_N 256
+//consts and global variables definitions
+
+#define LINE_SIZE 42
 
 FILE *input_file = NULL;
 FILE *output_file = NULL;
-char lines[LINE_N][LINE_SIZE];
-int lines_count = 0;
 
+char operation = 'x';
+chunk inp_base = 2;
+chunk out_base = 2;
+number num1, num2;
+int numbers_n;
+char buffer[LINE_SIZE];
+int buffer_counter = 0;
+
+bool reading_line = 0;
+bool skip_line = 0;
+int newlines_n = 0;
+
+
+//number "object" "methods"
+
+//"constructor"
 number new_number(len_t len){
     number new_n = (number)calloc(1, sizeof(struct number_struct));
     (*new_n).len = len;
@@ -40,6 +55,7 @@ len_t bits_to_len(bit_len_t bit_len){
     return bit_len / chunk_bit_size + (bit_len % chunk_bit_size > 0);
 }
 
+//"destructor"
 void del_number(number n){
     free((*n).data);
     free(n);
@@ -108,6 +124,9 @@ void set_bit(number n, bit_len_t bit, bool val){
         (*n).data[bit / chunk_bit_size] = (*n).data[bit / chunk_bit_size] | mask;
     }
 }
+
+
+//arithmetic and logic operations on number "objects"
 
 void add(number a, number b, number ret, len_t chunk_shift){
     len_t n1_shift = 0;
@@ -319,6 +338,9 @@ void close_files(){
     }
 }
 
+
+//functions used for parsing the input file and printing to the output file
+
 chunk val_of_digit(char c){
     if('0' <= c && c <= '9'){
         return c - '0';
@@ -331,18 +353,15 @@ chunk val_of_digit(char c){
     }
 }
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "cppcoreguidelines-narrowing-conversions"
 char digit_of_val(chunk val){
     if(val < 10){
         return '0' + val;
     }else if(val <= 16){
-        return 'a' + val - 10;
+        return 'A' + val - 10;
     }else{
         return '!';
     }
 }
-#pragma clang diagnostic pop
 
 bool is_operation(const char *str){
     int i;
@@ -389,7 +408,7 @@ bool is_number(const char *str, chunk base){
             return 0;
         }else{
             if(val_of_digit(str[i]) >= base){
-                fprintf(stderr, "digit value greater or equal to base\n");
+                fprintf(stderr, "Digit value in number greater or equal to base.\n");
                 return 0;
             }
         }
@@ -424,144 +443,140 @@ void set_number_from_string(number n, const char *str, chunk base){
 }
 
 void print_number(FILE *stream, number n, chunk base){
-    printf("result chunks: %u\n", (*n).len);
-    int str_len = (int) (ceil((double)(*n).len * 32 / log2(base)) + 8);
-    char *out_str = (char *) malloc(str_len);
-
     chunk digit_val;
     number zero = new_number(1);
 
-    int i = 0;
-    for(; !compare(zero, n); i++){
-        long_divide(n, base, n, &digit_val);
-        out_str[i] = digit_of_val(digit_val);
+    if(compare(zero, n)){
+        fprintf(stream, "0");
+    }else{
+        int str_len = (int) (ceil((double) (*n).len * 32 / log2(base)) + 8);
+        char *out_str = (char *) malloc(str_len);
+
+        int i = 0;
+        for(; !compare(zero, n); i++){
+            long_divide(n, base, n, &digit_val);
+            out_str[i] = digit_of_val(digit_val);
+        }
+        out_str[i] = '\0';
+        strrev(out_str);
+
+        fprintf(stream, "%s", out_str);
     }
-    out_str[i] = '\0';
-    printf("output digits: %i\n", i);
-    strrev(out_str);
-
-    fprintf(stream, "%s", out_str);
-
     del_number(zero);
 }
 
-void execute_calculation(){
-    float t1, t2, t3;
-    if(lines_count < 2){
-        return;
-    }
-    if(!is_operation(lines[0])){
-        return;
-    }
-    int args_count = lines_count - 1;
-    if(lines[0][0] == '/' || lines[0][0] == '%' || lines[0][0] == '^'){
-        if(args_count != 2){
-            fprintf(stderr, "division, modulo and exponentiation take exactly 2 arguments (%i were given)\n", args_count);
-            return;
-        }
-    }else if(lines[0][0] == '+' || lines[0][0] == '*'){
-        if(args_count < 2){
-            fprintf(stderr, "addition and multiplication take at least 2 arguments (%i were given)\n", args_count);
-            return;
-        }
-    }else{
-        if(args_count != 1){
-            fprintf(stderr, "number base change takes exactly 1 argument (%i were given)\n", args_count);
-            return;
-        }
-    }
-
-    chunk inp_base;
-    chunk out_base;
-    if(isdigit(lines[0][0])){
-        if(lines[0][1] == ' '){
-            if(lines[0][3] == '\0'){
-                inp_base = val_of_digit(lines[0][0]);
-                out_base = val_of_digit(lines[0][2]);
+void process_line(){
+    fprintf(output_file, "%s\n\n", buffer);
+    if(is_operation(buffer)){
+        if(isdigit(buffer[0])){
+            operation = 'b';
+            if(buffer[1] == ' '){
+                if(buffer[3] == '\0'){
+                    inp_base = val_of_digit(buffer[0]);
+                    out_base = val_of_digit(buffer[2]);
+                }else{
+                    inp_base = val_of_digit(buffer[0]);
+                    out_base = 10 * val_of_digit(buffer[2]) + val_of_digit(buffer[3]);
+                }
             }else{
-                inp_base = val_of_digit(lines[0][0]);
-                out_base = 10 * val_of_digit(lines[0][2]) + val_of_digit(lines[0][3]);
+                if(buffer[4] == '\0'){
+                    inp_base = 10 * val_of_digit(buffer[0]) + val_of_digit(buffer[1]);
+                    out_base = val_of_digit(buffer[3]);
+                }else{
+                    inp_base = 10 * val_of_digit(buffer[0]) + val_of_digit(buffer[1]);
+                    out_base = 10 * val_of_digit(buffer[3]) + val_of_digit(buffer[4]);
+                }
             }
         }else{
-            if(lines[0][4] == '\0'){
-                inp_base = 10 * val_of_digit(lines[0][0]) + val_of_digit(lines[0][1]);
-                out_base = val_of_digit(lines[0][3]);
+            operation = buffer[0];
+            if(buffer[3] == '\0'){
+                inp_base = val_of_digit(buffer[2]);
             }else{
-                inp_base = 10 * val_of_digit(lines[0][0]) + val_of_digit(lines[0][1]);
-                out_base = 10 * val_of_digit(lines[0][3]) + val_of_digit(lines[0][4]);
+                inp_base = 10 * val_of_digit(buffer[2]) + val_of_digit(buffer[3]);
             }
+            out_base = inp_base;
         }
-    }else{
-        if(lines[0][3] == '\0'){
-            inp_base = val_of_digit(lines[0][2]);
-        }else{
-            inp_base = 10 * val_of_digit(lines[0][2]) + val_of_digit(lines[0][3]);
-        }
-        out_base = inp_base;
-    }
 
-    if(!(2 <= inp_base && inp_base <= 16)){
-        fprintf(stderr, "input number base out of range (%u)\n", inp_base);
-        return;
-    }
-    if(!(2 <= out_base && out_base <= 16)){
-        fprintf(stderr, "output number base out of range (%u)\n", out_base);
-        return;
-    }
-
-    for(int i = 1; i < lines_count; i++){
-        if(!is_number(lines[i], inp_base)){
+        if(!(2 <= inp_base && inp_base <= 16)){
+            fprintf(stderr, "The base has to be equal or less 16 (%u)\n", inp_base);
             return;
         }
+        if(!(2 <= out_base && out_base <= 16)){
+            fprintf(stderr, "The base has to be equal or less 16 (%u)\n", out_base);
+            return;
+        }
+    }else if(operation != 'x'){
+        if(is_number(buffer, inp_base)){
+            if(numbers_n == 0){
+                set_number_from_string(num1, buffer, inp_base);
+            }else{
+                set_number_from_string(num2, buffer, inp_base);
+                switch(operation){
+                    case '+':
+                        add(num1, num2, num1, 0);
+                        break;
+                    case '*':
+                        multiply(num1, num2, num1);
+                        break;
+                    case '/':
+                        divide(num1, num2, num1, NULL);
+                        break;
+                    case '%':
+                        divide(num1, num2, NULL, num1);
+                        break;
+                    case '^':
+                        exponentiate(num1, num2, num1);
+                        break;
+                    default:
+                        fprintf(stderr, "Only one number is allowed as input for base change.\n");
+                        break;
+                }
+            }
+            numbers_n++;
+        }
+    }else{
+        fprintf(stderr, "Couldn't load number without operation and base set.\n");
     }
+}
 
-    number a = new_number(1);
-    number b = new_number(1);
+void print_answer(){
+    if(numbers_n > 0){
+        numbers_n = 0;
+        print_number(output_file, num1, out_base);
+        fprintf(output_file, "\n\n");
+    }
+}
 
-    t1 = (float) clock() / CLOCKS_PER_SEC;
-    set_number_from_string(a, lines[1], inp_base);
-    for(int i = 2; i < lines_count; i++){
-        set_number_from_string(b, lines[i], inp_base);
-        switch(lines[0][0]){
-            case '+':
-                add(a, b, a, 0);
-                break;
-            case '*':
-                multiply(a, b, a);
-                break;
-            case '/':
-                divide(a, b, a, NULL);
-                break;
-            case '%':
-                divide(a, b, NULL, a);
-                break;
-            case '^':
-                exponentiate(a, b, a);
-                break;
+void process_char(char c){
+    if(c == '\n'){
+        newlines_n++;
+        if(newlines_n == 3){
+            print_answer();
+        }
+        if(reading_line){
+            buffer[buffer_counter] = '\0';
+            process_line();
+            buffer_counter = 0;
+            reading_line = 0;
+        }
+    }else if(!skip_line && isprint(c)){
+        newlines_n = 0;
+        reading_line = 1;
+        buffer[buffer_counter] = c;
+        buffer_counter++;
+        if(buffer_counter >= LINE_SIZE - 1){
+            fprintf(stderr, "Line too long. (40 digits max)\n");
+            skip_line = 1;
         }
     }
-    t2 = (float) clock() / CLOCKS_PER_SEC;
-
-    for(int i = 0; i < lines_count; i++){
-        fprintf(output_file, "%s\n\n", lines[i]);
-    }
-    print_number(output_file, a, out_base);
-    fprintf(output_file, "\n\n");
-
-    t3 = (float) clock() / CLOCKS_PER_SEC;
-
-    printf("calculating: %f secs\n", t2 - t1);
-    printf("printing: %f secs\n", t3 - t2);
-
-    del_number(a);
-    del_number(b);
 }
 
 int main(int argc, char *argv[]){
+    //checking the command line arguments and opening the input and output files
     uint64_t inp_path_len, out_path_len;
 
     if(argc == 1){
-        fprintf(stderr, "input file not provided\n");
+        fprintf(stderr, "Input file not provided.\n");
         return 1;
     }else if(argc == 2){
         inp_path_len = strlen(argv[1]);
@@ -580,60 +595,28 @@ int main(int argc, char *argv[]){
         strcpy(out_path, argv[2]);
     }
 
-
     input_file = fopen(inp_path, "r");
     if(!input_file){
-        fprintf(stderr, "couldn't read %s\n", inp_path);
+        fprintf(stderr, "Couldn't read %s\n", inp_path);
         close_files();
         return 1;
     }
     output_file = fopen(out_path, "w");
     if(!output_file){
-        fprintf(stderr, "couldn't write to %s\n", out_path);
+        fprintf(stderr, "Couldn't write to %s\n", out_path);
         close_files();
         return 1;
     }
 
-    char buffer[LINE_SIZE];
-    int buffer_counter = 0;
-    bool reading_line = 0;
-    int new_lines_n = 0;
-
+    //main parsing loop
+    num1 = new_number(1);
+    num2 = new_number(1);
     int raw_c;
-    char c;
     while((raw_c = getc(input_file)) != EOF){
-        c = (char) raw_c;
-
-        if(c != '\n'){
-            new_lines_n = 0;
-            reading_line = 1;
-            buffer[buffer_counter] = c;
-            buffer_counter++;
-            if(buffer_counter >= LINE_SIZE - 1){
-                //line too long
-            }
-        }else{
-            new_lines_n++;
-            if(new_lines_n == 4){
-                execute_calculation();
-                lines_count = 0;
-            }
-
-            if(reading_line){
-                buffer[buffer_counter] = '\0';
-                strcpy(lines[lines_count], buffer);
-                lines_count++;
-                if(lines_count >= LINE_N){
-                    //too many lines
-                }
-                buffer_counter = 0;
-                reading_line = 0;
-            }
-        }
+        process_char((char) raw_c);
     }
-    if(lines_count > 0){
-        execute_calculation();
-    }
+    process_char('\n');
+    print_answer();
 
     close_files();
     return 0;
