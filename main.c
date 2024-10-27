@@ -46,8 +46,8 @@ int newlines_n = 0;
 //"constructor"
 number new_number(len_t len){
     number new_n = (number)calloc(1, sizeof(struct number_struct));
-    (*new_n).len = len;
-    (*new_n).data = calloc((*new_n).len, chunk_size);
+    new_n->len = len;
+    new_n->data = calloc(new_n->len, chunk_size);
     return new_n;
 }
 
@@ -57,48 +57,48 @@ len_t bits_to_len(bit_len_t bit_len){
 
 //"destructor"
 void del_number(number n){
-    free((*n).data);
+    free(n->data);
     free(n);
 }
 
 void set_number(number n, number val){
-    len_t len = (*val).len;
+    len_t len = val->len;
     for(; len > 0; len--){
-        if((*val).data[len - 1]){
+        if(val->data[len - 1]){
             break;
         }
     }
-    (*n).len = len;
-    free((*n).data);
-    (*n).data = calloc(len, chunk_size);
-    memcpy((*n).data, (*val).data, len * chunk_size);
+    n->len = len;
+    free(n->data);
+    n->data = calloc(len, chunk_size);
+    memcpy(n->data, val->data, len * chunk_size);
 }
 
 void clear_number(number n){
-    free((*n).data);
-    (*n).len = 1;
-    (*n).data = calloc(1, chunk_size);
+    free(n->data);
+    n->len = 1;
+    n->data = calloc(1, chunk_size);
 }
 
 void set_number_from_chunk(number n, chunk val){
     clear_number(n);
-    (*n).data[0] = val;
+    n->data[0] = val;
 }
 
 void extend_number(number n, len_t new_len){
-    len_t old_len = (*n).len;
-    chunk *old_data = (*n).data;
-    (*n).len = new_len;
-    (*n).data = calloc(new_len, chunk_size);
-    memcpy((*n).data, old_data, old_len * chunk_size);
+    len_t old_len = n->len;
+    chunk *old_data = n->data;
+    n->len = new_len;
+    n->data = calloc(new_len, chunk_size);
+    memcpy(n->data, old_data, old_len * chunk_size);
 }
 
 bool get_bit(number n, bit_len_t bit){
-    if(bit >= ((bit_len_t)(*n).len) * chunk_bit_size){
+    if(bit >= ((bit_len_t) n->len) * chunk_bit_size){
         return 0;
     }
     chunk mask = 1 << (bit % chunk_bit_size);
-    if((*n).data[bit / chunk_bit_size] & mask){
+    if(n->data[bit / chunk_bit_size] & mask){
         return 1;
     }else{
         return 0;
@@ -106,7 +106,7 @@ bool get_bit(number n, bit_len_t bit){
 }
 
 bit_len_t get_bit_len(number n){
-    bit_len_t bit_n = ((bit_len_t)(*n).len) * chunk_bit_size;
+    bit_len_t bit_n = ((bit_len_t) n->len) * chunk_bit_size;
     for(; bit_n > 0; bit_n--){
         if(get_bit(n, bit_n - 1)){
             return bit_n;
@@ -117,11 +117,11 @@ bit_len_t get_bit_len(number n){
 
 void set_bit(number n, bit_len_t bit, bool val){
     if(val){
-        if(bit >= ((bit_len_t)(*n).len) * chunk_bit_size){
+        if(bit >= ((bit_len_t) n->len) * chunk_bit_size){
             extend_number(n, bit / chunk_bit_size + 1);
         }
         chunk mask = 1 << (bit % chunk_bit_size);
-        (*n).data[bit / chunk_bit_size] = (*n).data[bit / chunk_bit_size] | mask;
+        n->data[bit / chunk_bit_size] = n->data[bit / chunk_bit_size] | mask;
     }
 }
 
@@ -134,15 +134,15 @@ void add(number a, number b, number ret, len_t chunk_shift){
     len_t len;
     len_t small_len;
     number n1, n2;
-    if((*a).len >= (*b).len + chunk_shift){
-        small_len = (*b).len + chunk_shift;
-        len = (*a).len;
+    if(a->len >= b->len + chunk_shift){
+        small_len = b->len + chunk_shift;
+        len = a->len;
         n1 = a;
         n2 = b;
         n2_shift = chunk_shift;
     }else{
-        small_len = (*a).len;
-        len = (*b).len + chunk_shift;
+        small_len = a->len;
+        len = b->len + chunk_shift;
         n1 = b;
         n2 = a;
         n1_shift = chunk_shift;
@@ -157,30 +157,30 @@ void add(number a, number b, number ret, len_t chunk_shift){
         if(i < n1_shift){
             n1_dblchunk = 0;
         }else{
-            n1_dblchunk = (*n1).data[i - n1_shift];
+            n1_dblchunk = n1->data[i - n1_shift];
         }
         if(i < n2_shift){
             n2_dblchunk = 0;
         }else{
-            n2_dblchunk = (*n2).data[i - n2_shift];
+            n2_dblchunk = n2->data[i - n2_shift];
         }
         n1_dblchunk = n1_dblchunk + n2_dblchunk + carry;
         carry = n1_dblchunk >> chunk_bit_size;
-        (*ans).data[i] = (chunk) n1_dblchunk;
+        ans->data[i] = (chunk) n1_dblchunk;
     }
     for(; i < len; i++){
         if(i < n1_shift){
             n1_dblchunk = 0;
         }else{
-            n1_dblchunk = (*n1).data[i - n1_shift];
+            n1_dblchunk = n1->data[i - n1_shift];
         }
         n1_dblchunk = n1_dblchunk + carry;
         carry = n1_dblchunk >> chunk_bit_size;
-        (*ans).data[i] = (chunk) n1_dblchunk;
+        ans->data[i] = (chunk) n1_dblchunk;
     }
     if(carry){
         extend_number(ans, len + 1);
-        (*ans).data[len] = carry;
+        ans->data[len] = carry;
     }
 
     set_number(ret, ans);
@@ -203,9 +203,9 @@ bool compare(number a, number b){
 }
 
 void subtract(number a, number b, number ret){
-    len_t a_len = (*a).len;
-    len_t b_len = (*b).len;
-    number ans = new_number((*a).len);
+    len_t a_len = a->len;
+    len_t b_len = b->len;
+    number ans = new_number(a->len);
 
     signed_dblchunk a_dblchunk;
     signed_dblchunk b_dblchunk;
@@ -213,16 +213,16 @@ void subtract(number a, number b, number ret){
 
     len_t i = 0;
     for(; i < b_len; i++){
-        a_dblchunk = (*a).data[i];
-        b_dblchunk = (*b).data[i];
+        a_dblchunk = a->data[i];
+        b_dblchunk = b->data[i];
         a_dblchunk = a_dblchunk - b_dblchunk + carry;
-        (*ans).data[i] = (chunk) * (dblchunk*) &a_dblchunk;
+        ans->data[i] = (chunk) * (dblchunk*) &a_dblchunk;
         carry = (signed_chunk) (a_dblchunk >> chunk_bit_size);
     }
     for(; i < a_len; i++){
-        a_dblchunk = (*a).data[i];
+        a_dblchunk = a->data[i];
         a_dblchunk = a_dblchunk + carry;
-        (*ans).data[i] = (chunk) * (dblchunk*) &a_dblchunk;
+        ans->data[i] = (chunk) * (dblchunk*) &a_dblchunk;
         carry = (signed_chunk) (a_dblchunk >> chunk_bit_size);
     }
 
@@ -246,18 +246,18 @@ void bit_shift(number n, bit_len_t shift, number ret){
 
 void multiply(number a, number b, number ret){
     number ans = new_number(1);
-    number partial_ans = new_number((*b).len);
-    number partial_carry = new_number((*b).len);
+    number partial_ans = new_number(b->len);
+    number partial_carry = new_number(b->len);
 
     dblchunk a_dblchunk;
     dblchunk b_dblchunk;
-    for(len_t a_chunk_n = 0; a_chunk_n < (*a).len; a_chunk_n++){
-        a_dblchunk = (*a).data[a_chunk_n];
-        for(len_t b_chunk_n = 0; b_chunk_n < (*b).len; b_chunk_n++){
-            b_dblchunk = (*b).data[b_chunk_n];
+    for(len_t a_chunk_n = 0; a_chunk_n < a->len; a_chunk_n++){
+        a_dblchunk = a->data[a_chunk_n];
+        for(len_t b_chunk_n = 0; b_chunk_n < b->len; b_chunk_n++){
+            b_dblchunk = b->data[b_chunk_n];
             b_dblchunk = a_dblchunk * b_dblchunk;
-            (*partial_ans).data[b_chunk_n] = (chunk) b_dblchunk;
-            (*partial_carry).data[b_chunk_n] = b_dblchunk >> chunk_bit_size;
+            partial_ans->data[b_chunk_n] = (chunk) b_dblchunk;
+            partial_carry->data[b_chunk_n] = b_dblchunk >> chunk_bit_size;
         }
         add(ans, partial_ans, ans, a_chunk_n);
         add(ans, partial_carry, ans, a_chunk_n + 1);
@@ -293,14 +293,14 @@ void divide(number a, number b, number ret_quotient, number ret_rest){
 }
 
 void long_divide(number a, chunk b, number ret_quotient, chunk *ret_rest){
-    len_t len = (*a).len;
+    len_t len = a->len;
     number quotient = new_number(len);
     dblchunk a_dblchunk = 0;
 
     for(len_t i = 0; i < len; i++){
         a_dblchunk = a_dblchunk << chunk_bit_size;
-        a_dblchunk = a_dblchunk + (*a).data[len - i - 1];
-        (*quotient).data[len - i - 1] = a_dblchunk / b;
+        a_dblchunk = a_dblchunk + a->data[len - i - 1];
+        quotient->data[len - i - 1] = a_dblchunk / b;
         a_dblchunk = a_dblchunk % b;
     }
 
